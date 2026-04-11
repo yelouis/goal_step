@@ -3,6 +3,9 @@
 ## Overview
 Using the cleaned acoustic energy envelope generated in Phase 1, Phase 2 implements a sliding window algorithm to detect significant relative shifts in audio magnitude. This acts as an automated trigger directing the VLM (Visual Captioning) on exactly when to scan the video frame.
 
+> [!WARNING]
+> **Audio-Only Limitation:** Many egocentric procedural steps (measuring, aligning, inspecting) are visually obvious but acoustically silent. The `forced_silence` watcher handles some of these, but consider supplementing with a visual change-detection pass (e.g., frame-differencing or optical flow) as an additional trigger source in a future iteration.
+
 ## Key Concepts
 - **Short-Term Average Energy ($E_{sta}$):** Energy over a very short time (e.g., 0.5s - 1s). Represents the *current* state.
 - **Long-Term Average Energy ($E_{lta}$):** Energy over a longer window (e.g., 5s - 10s). Represents the *contextual baseline*.
@@ -24,35 +27,58 @@ FPS_AUDIO = 16000 / 512 # Approx 31.25 frames per second using Phase 1 standard
 STA_WINDOW_FRAMES = int(0.5 * FPS_AUDIO) # 0.5 second window
 LTA_WINDOW_FRAMES = int(5.0 * FPS_AUDIO) # 5.0 second window
 
+# Baseline thresholds (used for reset targets)
+K_UP_DEFAULT = 2.5
+K_DOWN_DEFAULT = 0.3
+
 class AdaptiveSentry:
     def __init__(self, video_id: str):
         self.video_id = video_id
         
         # Initial Thresholds
-        self.k_up = 2.5
-        self.k_down = 0.3
+        self.k_up = K_UP_DEFAULT
+        self.k_down = K_DOWN_DEFAULT
         
         # Rate Limiting & Cooldown Config
         self.cooldown_frames = int(3.0 * FPS_AUDIO) # 3s cooldown
         self.t_force_frames = int(45.0 * FPS_AUDIO) # 45s silence watcher
         self.saturation_window_frames = int(15.0 * FPS_AUDIO) # 15s saturation monitoring
         
+        # Decay control: how quickly thresholds relax back to default
+        # Each trigger event applies one unit of decay (not per-frame)
+        self.decay_rate = 0.85  # Per-trigger-event decay factor
+        
         # State
         self.last_trigger_frame = 0
+        self.last_saturation_check_frame = 0
         self.trigger_history = [] # Stores (frame_idx, trigger_type)
         
     def check_saturation(self, current_frame: int):
-        """ Exponentially backoff thresholds if triggered too often """
-        recent_triggers = [t for t in self.trigger_history if (current_frame - t[0]) <= self.saturation_window_frames]
+        """
+        Exponentially backoff thresholds if triggered too often.
+        
+        Decay only runs once per trigger event (not per-frame) to 
+        avoid snapping back to baseline in a handful of frames.
+        """
+        recent_triggers = [t for t in self.trigger_history 
+                          if (current_frame - t[0]) <= self.saturation_window_frames]
         
         if len(recent_triggers) >= 3:
-            # Saturation occurring - increase thresholds
+            # Saturation occurring - make triggers harder to fire
             self.k_up *= 1.5 
-            self.k_down *= 0.5 # lower fraction means harder to drop
-        else:
-            # Decay back to normal
-            self.k_up = max(2.5, self.k_up * 0.9)
-            self.k_down = min(0.3, self.k_down * 1.1)
+            self.k_down *= 0.5  # lower fraction means harder to trigger drop
+            print(f"[Saturation] frame {current_frame}: k_up={self.k_up:.2f}, k_down={self.k_down:.4f}")
+        # Note: decay is applied in _apply_decay_on_trigger() instead of here
+
+    def _apply_decay_on_trigger(self):
+        """
+        Gradually relax thresholds back toward defaults.
+        Called once per trigger event, not per frame.
+        """
+        if self.k_up > K_UP_DEFAULT:
+            self.k_up = max(K_UP_DEFAULT, self.k_up * self.decay_rate)
+        if self.k_down < K_DOWN_DEFAULT:
+            self.k_down = min(K_DOWN_DEFAULT, self.k_down / self.decay_rate)
 
     def scan_track(self) -> list:
         # Load clean energy from Phase 1 cache
@@ -68,9 +94,6 @@ class AdaptiveSentry:
             if (i - self.last_trigger_frame) < self.cooldown_frames:
                 continue
                 
-            # Update saturation logic
-            self.check_saturation(i)
-            
             # Extract Windows
             lta_slice = energy_envelope[i - LTA_WINDOW_FRAMES : i]
             sta_slice = energy_envelope[i - STA_WINDOW_FRAMES : i]
@@ -99,6 +122,11 @@ class AdaptiveSentry:
                 })
                 self.trigger_history.append((i, trigger_type))
                 self.last_trigger_frame = i
+                
+                # Check for saturation after each trigger
+                self.check_saturation(i)
+                # Apply gentle decay toward defaults
+                self._apply_decay_on_trigger()
 
         return triggers
         
@@ -114,6 +142,19 @@ if __name__ == '__main__':
     print(f"Sentry detected {len(event_triggers)} interest zones.")
 ```
 
+## Future Enhancement: Visual Change Detection
+As a complementary trigger source (especially for silent procedural steps), a simple frame-differencing approach can detect visual state changes:
+
+```python
+def visual_change_score(prev_frame, curr_frame) -> float:
+    """Compute pixel-level change between consecutive frames."""
+    diff = np.abs(prev_frame.astype(float) - curr_frame.astype(float))
+    return np.mean(diff) / 255.0  # Normalized 0-1
+```
+
+This would run in parallel with the acoustic sentry, producing a merged trigger list sorted by timestamp. Not yet implemented but noted as a priority improvement.
+
 ## Verification Strategy
 - **Alignment Test:** Pass an Ego4D dataset sample through the pipeline and print all `["spike", "drop"]` timestamps. Watch the raw video sequentially via VLC and assert that >80% of major tool actions/sudden clanging trigger a spike, and setting down the tool triggers a drop. 
-- **Saturation Fallback Print:** Inject a `print("Saturation Triggered")` block inside `check_saturation` to ensure limits dynamically activate during sustained noise events (e.g., using a drill for 30s).
+- **Saturation Fallback Print:** The `check_saturation` method now prints when saturation activates. Verify during sustained noise events (e.g., using a drill for 30s).
+- **Decay Rate Test:** After saturation, run 5 more triggers and verify `k_up` gradually returns toward 2.5 (not instantly).

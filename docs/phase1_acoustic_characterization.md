@@ -74,7 +74,8 @@ def apply_acoustic_characterization(video_id: str):
     S_mag = np.abs(S)
     
     # 3. Compute Energy Envelope
-    energy_envelope = librosa.feature.rms(S=S_mag, frame_length=N_FFT, hop_length=HOP_LENGTH)[0]
+    # Note: frame_length/hop_length are ignored when S= is provided (they only apply with y=)
+    energy_envelope = librosa.feature.rms(S=S_mag)[0]
     
     # 4. Get Baselines
     Ng, mad = calculate_global_noise_floor(energy_envelope)
@@ -86,7 +87,7 @@ def apply_acoustic_characterization(video_id: str):
     S_mag_clean = np.maximum(S_mag - spectral_mask[:, np.newaxis], 0.0)
     
     # Recalculate clean energy envelope
-    clean_energy_envelope = librosa.feature.rms(S=S_mag_clean, frame_length=N_FFT, hop_length=HOP_LENGTH)[0]
+    clean_energy_envelope = librosa.feature.rms(S=S_mag_clean)[0]
     
     # Save clean envelope to SSD for Phase 2
     save_path = os.path.join(SSD_BASE, f"cache/phase1/{video_id}_clean_energy.npy")
