@@ -8,7 +8,7 @@ This document outlines the architecture and execution strategy for participating
 
 > [!WARNING]
 > **Memory Budget (24GB M4 Pro):**
-> Models must be loaded sequentially, not concurrently. Moondream2 (~3.7GB) → unload → Gemma 4 26B (~14GB) → unload → BayesianVSLNet (~4-8GB). Explicit `del` + `gc.collect()` between phases.
+> Models must be loaded sequentially, not concurrently. Qwen2.5-VL-3B-Instruct-4bit (~2GB) → unload → Gemma 4 26B (~14GB) → unload → BayesianVSLNet (~4-8GB). Explicit `del` + `gc.collect()` between phases.
 
 ## Phase 0: Installation and Model Verification
 - Set up base package dependencies (`mlx`, `librosa`, `torch`).
@@ -29,7 +29,7 @@ This document outlines the architecture and execution strategy for participating
 ## Phase 2: The Adaptive Sentry (Bidirectional Magnitude Triggers)
 This stage identifies "Interest Zones" for visual captioning by detecting significant shifts in the acoustic state.
 
-- **Step 2.1: Bidirectional Change Detection:** Trigger a **Moondream2** capture if the Short-Term Average Energy ($E_{sta}$) deviates significantly from the Long-Term Average Energy ($E_{lta}$):
+- **Step 2.1: Bidirectional Change Detection:** Trigger a **Qwen2.5-VL-3B** capture if the Short-Term Average Energy ($E_{sta}$) deviates significantly from the Long-Term Average Energy ($E_{lta}$):
   - **The Spike:** Trigger if $E_{sta} / E_{lta} > k_{up}$ (e.g., $k_{up} = 2.5$).
   - **The Drop:** Trigger if $E_{sta} / E_{lta} < k_{down}$ (e.g., $k_{down} = 0.3$). This captures the exact moment a noisy action ceases.
 - **Step 2.2: Semantic Rate Limiting:**
@@ -40,7 +40,7 @@ This stage identifies "Interest Zones" for visual captioning by detecting signif
 > **Known Limitation:** Audio-only triggers are unreliable for acoustically silent procedural steps. A visual change-detection fallback (frame differencing / optical flow) is documented as a future enhancement.
 
 ## Phase 3: Visual Captioning & Table of Contents (ToC)
-- **Step 3.1: Trigger-Aware Captioning:** For every trigger, pass the frame to **Moondream2** using a prompt adapted to the trigger type:
+- **Step 3.1: Trigger-Aware Captioning:** For every trigger, pass the frame to **Qwen2.5-VL-3B** (via `mlx_vlm` with `apply_chat_template`) using a prompt adapted to the trigger type:
   - `spike` → "What action is the user starting?"
   - `drop` → "What action did the user just finish?"
   - `forced_silence` → "What is the user currently doing?"

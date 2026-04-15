@@ -1,0 +1,9 @@
+mlx
+mlx-vlm
+mlx-lm
+librosa
+scipy
+opencv-python
+transformers
+torch
+torchvision

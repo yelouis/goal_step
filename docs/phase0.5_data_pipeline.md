@@ -233,3 +233,27 @@ def verify_data_integrity(split: str = "val"):
 - **Annotation Parse Test:** Assert that `parse_goalstep_annotations("val")` returns a non-empty dict, and that every `StepQuery` has a non-empty `step_description` and valid `gt_start_time < gt_end_time`.
 - **UID Coverage:** Assert that every `video_uid` referenced in the annotations has a corresponding `.mp4` file on the SSD.
 - **Schema Spot-Check:** Print 5 random queries and manually verify they match the raw JSON structure.
+
+---
+
+## Phase 0.5 Completion Summary & Future Considerations
+
+### What was Completed
+- Extracted the python parsing logic out of this document and into an executable artifact `scripts/parse_annotations.py`.
+- Installed `ego4d` CLI dependencies within the Python virtual environment.
+- Configured data hierarchy definitions for the 2TB External SSD (`/Volumes/Extreme SSD/ego4d_data`).
+- Validated logic for annotation parsing and data integrity processing using a mock dataset structure, ensuring that `cv2` integrity checks correctly catch corrupted or unreadable video chunks without catastrophic failure.
+- Implemented fallback logic for missing data splits (so we can selectively download test/val without crashing).
+
+### Potential Problems in Later Phases
+1. **AWS CLI Authentications vs `ego4d` Downloader**: 
+   - **Problem**: When running the raw download scripts (`ego4d --output_directory="..."`), the ego4d pip package attempts to find a local AWS configuration profile (`default`). This will hard crash with `botocore.exceptions.ProfileNotFound` if `aws-cli` hasn't been locally configured with valid IAM tokens.
+   - **Solution**: We will require a user-assisted step to execute `aws configure` and supply real access/secret keys authorized to read the ego4d AWS S3 buckets before re-running the python pip downloader commands. An alternative is using signed ego4d download links if they circumvent AWS profiles.
+
+2. **Storage and Compute Burn (Video Downloads)**: 
+   - **Problem**: Ego4D's `full_scale` dataset is colossal. Unrestricted downloads risk overwhelming both standard network limits and the 2TB SSD memory budget.
+   - **Solution**: The `build_video_uid_list` script is constructed specifically to partition out the `goalstep_{split}_video_uids.txt`. Instead of downloading `full_scale` blindly, any updated phase 0.5 execution should mandate using `--video_uids_file="...txt"` to selectively download only the subset needed for the challenge val/test sets. 
+
+3. **Dependency Drift and Virtual Environment**: 
+   - **Problem**: The scripts currently execute through the global state or isolated python venv, but system packages like `ffmpeg` (which `cv2` and `librosa` might rely on under the hood for untrimmed multi-hour MP4 files) are assumed.
+   - **Solution**: Integrate a fast `brew install ffmpeg` block if running on macOS into any subsequent updated implementation plan to guarantee structural pipeline decoding for video analysis.
