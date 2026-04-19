@@ -29,8 +29,12 @@ AUDIO_RATE = 16000 # Standardizing on 16kHz
 N_FFT = 2048
 HOP_LENGTH = 512
 
-def extract_audio(video_id: str) -> np.ndarray:
-    video_path = os.path.join(SSD_BASE, f"videos/{video_id}.mp4")
+def extract_audio(video_path: str) -> np.ndarray:
+    """Extract audio from a video file.
+    
+    Args:
+        video_path: Absolute path to the video file on SSD.
+    """
     # Load audio - librosa automatically converts to mono and target sr
     y, sr = librosa.load(video_path, sr=AUDIO_RATE)
     return y
@@ -65,9 +69,22 @@ def generate_stationary_mask(S_mag: np.ndarray, Ng: float, mad: float) -> np.nda
     
     return spectral_mask
 
-def apply_acoustic_characterization(video_id: str):
+def apply_acoustic_characterization(video_id: str, video_path: str):
+    """Run acoustic characterization on a video.
+    
+    Args:
+        video_id: Unique identifier for the video.
+        video_path: Absolute path to the video file on SSD.
+    """
+    # Cache check — skip if already processed
+    save_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_clean_energy.npy")
+    profile_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_acoustic_profile.json")
+    if os.path.exists(save_path) and os.path.exists(profile_path):
+        print(f"[CACHED] Acoustic characterization for {video_id} already exists.")
+        return
+
     # 1. Load data
-    audio_signal = extract_audio(video_id)
+    audio_signal = extract_audio(video_path)
     
     # 2. Compute STFT and Magnitude
     S = librosa.stft(audio_signal, n_fft=N_FFT, hop_length=HOP_LENGTH)
@@ -90,17 +107,45 @@ def apply_acoustic_characterization(video_id: str):
     clean_energy_envelope = librosa.feature.rms(S=S_mag_clean)[0]
     
     # Save clean envelope to SSD for Phase 4
-    save_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_clean_energy.npy")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     np.save(save_path, clean_energy_envelope)
+    
+    # Save acoustic profile metadata for downstream inspection
+    import json
+    profile = {
+        "video_id": video_id,
+        "Ng": float(Ng),
+        "MAD": float(mad),
+        "audio_duration_sec": float(len(audio_signal) / AUDIO_RATE),
+        "total_stft_frames": int(S_mag.shape[1]),
+        "clean_energy_frames": int(len(clean_energy_envelope)),
+        "sample_rate": AUDIO_RATE
+    }
+    with open(profile_path, 'w') as f:
+        json.dump(profile, f, indent=2)
     
     print(f"Phase 3 complete for {video_id}. Ng={Ng:.4f}, MAD={mad:.4f}")
 
 if __name__ == '__main__':
     # Example: run on an EPIC-KITCHENS video
-    apply_acoustic_characterization("P01_101")
+    apply_acoustic_characterization(
+        "P01_101",
+        "/Volumes/Extreme SSD/goal_step_data/datasets/epic_kitchens_100/videos/P01_101.MP4"
+    )
 ```
+
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | Video files from Phase 1 at `datasets/{dataset}/videos/` |
+| **Output Artifacts** | `/Volumes/Extreme SSD/goal_step_data/cache/phase3/{video_id}_clean_energy.npy`, `{video_id}_acoustic_profile.json` |
+| **Cache Check** | On entry, `apply_acoustic_characterization()` checks if both `.npy` and `.json` exist and returns early if so |
+| **Verification Checkpoint** | After completing all videos, write `cache/phase3/_manifest.json` listing all processed video IDs |
+| **Resume Strategy** | On re-run, skip any video whose clean energy + profile pair already exists on the SSD |
 
 ## Verification Strategy
 - **Visual STFT Check:** To test that the masking logic truly suppresses stationary HVAC noise without deleting tool sounds, temporarily use `matplotlib.pyplot` to render `librosa.display.specshow` of `S_mag` vs `S_mag_clean`. Test with videos from each dataset since audio characteristics vary (kitchens vs. indoor activities vs. assembly tasks).
 - **Unit Assertion:** Assert that taking `np.mean(S_mag_clean)` over known silent temporal regions in a test video is effectively `0.0`.
+- **Profile Metadata Check:** Assert that `{video_id}_acoustic_profile.json` contains valid `Ng`, `MAD`, and `audio_duration_sec` fields.
+- **Cache Consistency:** Run `apply_acoustic_characterization()` twice. Assert the second call returns immediately.

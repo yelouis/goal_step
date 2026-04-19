@@ -254,8 +254,19 @@ if __name__ == '__main__':
 > [!NOTE]
 > **Deduplication Quality:** The word-overlap Jaccard heuristic is fast but imperfect. If the Librarian (Phase 6) struggles with noisy event logs, consider upgrading to sentence-embedding similarity using the Gemma model (at the cost of loading a second model during this phase).
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | Video files from Phase 1 at `datasets/{dataset}/videos/` |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase2/{video_id}_events.json` |
+| **Cache Check** | On entry, `annotate_video()` checks if `{video_id}_events.json` exists and returns cached results |
+| **Verification Checkpoint** | After completing all videos, write `cache/phase2/_manifest.json` listing all processed video IDs and event counts |
+| **Resume Strategy** | On re-run, skip any video whose `_events.json` already exists on the SSD |
+
 ## Verification Strategy
 - **Coverage Test:** For a sample video, assert that the union of all event spans covers ≥80% of the video's total duration. Gaps (uncovered time) should be logged for investigation.
 - **Deduplication Sanity:** Manually inspect 10 consecutive raw captions and their merged events. Verify that semantically identical descriptions are properly collapsed.
 - **Caption Quality Baseline:** Select 20 random event captions and manually rate them as "accurate", "vague", or "wrong". Target: ≥70% accurate.
 - **Cache Consistency:** Run `annotate_video()` twice for the same video. Assert the second call returns cached results instantly.
+

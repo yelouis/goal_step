@@ -155,7 +155,38 @@ def visual_change_score(prev_frame, curr_frame) -> float:
 
 This would run in parallel with the acoustic sentry, producing a merged trigger list sorted by timestamp. Not yet implemented but noted as a priority improvement.
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | `cache/phase3/{video_id}_clean_energy.npy` (Phase 3) |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase4/{video_id}_triggers.json` |
+| **Cache Check** | Before running `scan_track()`, check if `{video_id}_triggers.json` exists and load from cache if so |
+| **Verification Checkpoint** | After completing all videos, write `cache/phase4/_manifest.json` listing all processed video IDs and trigger counts |
+| **Resume Strategy** | On re-run, skip any video whose `_triggers.json` already exists on the SSD |
+
+```python
+def run_sentry_cached(video_id: str) -> list:
+    """Run the Adaptive Sentry with cache check."""
+    cache_path = os.path.join(SSD_BASE, f"cache/phase4/{video_id}_triggers.json")
+    if os.path.exists(cache_path):
+        print(f"[CACHED] Triggers for {video_id} already exist.")
+        with open(cache_path, 'r') as f:
+            return json.load(f)
+    
+    sentry = AdaptiveSentry(video_id)
+    triggers = sentry.scan_track()
+    
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, 'w') as f:
+        json.dump(triggers, f, indent=4)
+    print(f"Sentry detected {len(triggers)} interest zones for {video_id}.")
+    return triggers
+```
+
 ## Verification Strategy
 - **Alignment Test:** Pass samples from each dataset through the pipeline and print all `["spike", "drop"]` timestamps. Watch the raw video sequentially via VLC and assert that >80% of major tool actions/sudden clanging trigger a spike, and setting down the tool triggers a drop. Test across all three datasets since audio profiles differ significantly (kitchen sounds vs. indoor activity vs. assembly). 
 - **Saturation Fallback Print:** The `check_saturation` method now prints when saturation activates. Verify during sustained noise events (e.g., using a drill for 30s).
 - **Decay Rate Test:** After saturation, run 5 more triggers and verify `k_up` gradually returns toward 2.5 (not instantly).
+- **Cache Consistency:** Run `run_sentry_cached()` twice. Assert the second call returns cached results instantly.
+

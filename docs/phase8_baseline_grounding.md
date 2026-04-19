@@ -179,7 +179,19 @@ if __name__ == '__main__':
 | **Memory footprint** | Small feature tensor | Large feature tensor (may OOM on long videos) |
 | **Accuracy** | TBD (should be competitive) | TBD (ground truth baseline) |
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | Pre-extracted features, unified query index (Phase 1) |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase8/baseline_results.json` (full dataset), individual `{video_id}_{query_idx}_baseline.json` |
+| **Cache Check** | Before running a query, check if its individual baseline result already exists |
+| **Verification Checkpoint** | After completing all queries, write `cache/phase8/_manifest.json` listing all processed queries |
+| **Resume Strategy** | On re-run, skip any query whose baseline result already exists on the SSD |
+
 ## Verification Strategy
 - **Consistency Check:** For a known video, run both Phase 7 and Phase 8 with the same query. If the Librarian correctly identifies the chapter, both should produce similar `(start, end)` predictions (within $\pm$ a few seconds).
 - **Cost Logging Validation:** Assert that `features_processed` in Phase 8 is always ≥ `features_processed` in Phase 7 for the same query.
 - **Memory Safety:** For videos longer than 30 minutes, verify that the full-video feature tensor doesn't exceed the 24GB memory budget. If it does, implement feature chunking with sliding window inference.
+- **Cache Consistency:** Run `predict_full_video()` twice with the same inputs. Assert the second call returns cached results instantly.
+

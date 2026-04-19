@@ -9,11 +9,11 @@ The Librarian will handle situations where a step was captured perfectly via an 
 Since this requires high logic, we utilize an advanced model (e.g., Gemma 4 26B MoE or Gemma 2 27B) running locally via `mlx-lm`. The MoE architecture activates only ~3.8B params per token, making inference fast on the M4 Pro despite the full 26B parameter count.
 
 > [!IMPORTANT]
-> **Memory Budget:** Gemma 4 26B at 4-bit quantization requires ~13-15GB of unified memory. Ensure Moondream2 is unloaded before loading Gemma to stay within the 24GB budget. See the model lifecycle notes below.
+> **Memory Budget:** Gemma 4 26B at 4-bit quantization requires ~13-15GB of unified memory. Ensure Qwen2.5-VL-3B is unloaded before loading Gemma to stay within the 24GB budget. See the model lifecycle notes below.
 
 ## Model Lifecycle
 To avoid OOM on the 24GB M4 Pro:
-1. **Phase 5** loads Moondream2 (~3.7GB). After ToC generation for all videos, explicitly `del model` and `gc.collect()`.
+1. **Phase 5** loads Qwen2.5-VL-3B-Instruct-4bit (~2GB). After ToC generation for all videos, explicitly `del model` and `gc.collect()`.
 2. **Phase 6** loads Gemma 4 26B (~14GB). Runs all Librarian queries, then unloads.
 3. **Phase 7** loads BayesianVSLNet + text encoder (~4-8GB on MPS).
 
@@ -127,6 +127,15 @@ class VideoLibrarian:
     def find_step(self, video_id: str, target_step: str, 
                   goal_description: str = "", goal_category: str = "",
                   max_retries: int = 3) -> dict:
+        # Cache check — skip if this exact (video, query) was already processed
+        import hashlib
+        query_hash = hashlib.md5(target_step.encode()).hexdigest()[:8]
+        cache_path = os.path.join(SSD_BASE, f"cache/phase6/{video_id}_{query_hash}_hypothesis.json")
+        if os.path.exists(cache_path):
+            print(f"[CACHED] Librarian hypothesis for {video_id} / '{target_step[:40]}...' already exists.")
+            with open(cache_path, 'r') as f:
+                return json.load(f)
+
         # Load the ToC
         toc_path = os.path.join(SSD_BASE, f"cache/phase5/{video_id}_toc.json")
         with open(toc_path, 'r') as f:
@@ -165,6 +174,11 @@ class VideoLibrarian:
                 # Validate expected keys
                 if "top_chapters" not in structured_out:
                     raise ValueError("Missing 'top_chapters' key")
+                
+                # Cache the successful result
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, 'w') as f:
+                    json.dump(structured_out, f, indent=4)
                     
                 return structured_out
                 
@@ -205,8 +219,19 @@ if __name__ == '__main__':
     librarian.unload()
 ```
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | `cache/phase5/{video_id}_toc.json` (Phase 5), unified query index (Phase 1) |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase6/{video_id}_{query_hash}_hypothesis.json` |
+| **Cache Check** | On entry, `find_step()` checks if the (video_id, query_hash) result already exists and returns early if so |
+| **Verification Checkpoint** | After completing all queries, write `cache/phase6/_manifest.json` listing all processed (video_id, query) pairs |
+| **Resume Strategy** | On re-run, skip any (video, query) pair whose hypothesis JSON already exists on the SSD |
+
 ## Verification Strategy
 - **JSON Schema Check:** Build a PyTest unit test that feeds the Librarian a mock `Target Step` and dummy `ToC array`. Assert that the resulting string successfully parses via `extract_json_robust()` and contains the keys `top_chapters`, `confidence`, and `reasoning`.
 - **Interpolation Test:** Give the Librarian a ToC with "User grabs hammer" at 10.0s and "User puts hammer down" at 20.0s, and ask for the Target Step "User hits the nail". Assert that it identifies `[10.0, 20.0]` as the chapter.
 - **Goal Context Test:** Run the same query with and without goal context. Compare the `confidence` and `reasoning` fields to verify the model uses the hierarchical information.
 - **Retry Coverage:** Intentionally use a small `max_tokens=32` to force truncated JSON, and verify the retry mechanism kicks in and eventually succeeds.
+- **Cache Consistency:** Run `find_step()` twice with the same inputs. Assert the second call returns cached results instantly.

@@ -422,17 +422,60 @@ if __name__ == '__main__':
 
 ---
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | Dataset downloads (manual), annotation files |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase1/unified_query_index.json` |
+| **Cache Check** | On entry, check if `unified_query_index.json` exists and skip parsing if so |
+| **Verification Checkpoint** | After building the combined index, write `cache/phase1/_manifest.json` with video counts, query counts, and integrity status per dataset |
+| **Resume Strategy** | On re-run, load the cached index. If new datasets are added, re-parse only the new sources and merge |
+
+```python
+def save_combined_index(all_videos: dict):
+    """Persist the unified query index to SSD for cross-session resilience."""
+    import json
+    from dataclasses import asdict
+    
+    serializable = {}
+    for vid, ann in all_videos.items():
+        serializable[vid] = {
+            "video_id": ann.video_id,
+            "dataset_source": ann.dataset_source,
+            "video_duration": ann.video_duration,
+            "video_path": ann.video_path,
+            "queries": [
+                {
+                    "video_id": q.video_id,
+                    "dataset_source": q.dataset_source,
+                    "query_idx": q.query_idx,
+                    "step_description": q.step_description,
+                    "goal_description": q.goal_description,
+                    "gt_start_time": q.gt_start_time,
+                    "gt_end_time": q.gt_end_time,
+                    "original_metadata": q.original_metadata
+                }
+                for q in ann.queries
+            ]
+        }
+    
+    out_path = os.path.join(SSD_BASE, "cache/phase1/unified_query_index.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, 'w') as f:
+        json.dump(serializable, f, indent=2)
+    print(f"Unified query index saved: {len(serializable)} videos")
+```
+
+---
+
 ## Phase 1 Completion Summary & Future Considerations
 
 ### What was Completed
-- Extracted the python parsing logic out of this document and into an executable artifact `scripts/parse_annotations.py`.
-- Installed `ego4d` CLI dependencies within the Python virtual environment.
-- Configured data hierarchy definitions for the 2TB External SSD (`/Volumes/Extreme SSD/ego4d_data`).
+- Extracted the python parsing logic into an executable artifact `scripts/parse_annotations.py`.
+- Configured data hierarchy definitions for the 2TB External SSD (`/Volumes/Extreme SSD/goal_step_data`).
 - Validated logic for annotation parsing and data integrity processing using a mock dataset structure, ensuring that `cv2` integrity checks correctly catch corrupted or unreadable video chunks without catastrophic failure.
 - Implemented fallback logic for missing data splits (so we can selectively download test/val without crashing).
-
-> [!NOTE]
-> **Legacy Note:** The above completion summary reflects work done against the original Ego4D data pipeline. The parsers above for EPIC-KITCHENS-100, Charades-Ego, and EgoProceL supersede the Ego4D-specific code but the verification patterns and SSD storage strategy remain applicable.
 
 ### Potential Problems in Later Phases
 

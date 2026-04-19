@@ -266,8 +266,20 @@ if __name__ == '__main__':
         json.dump(result, f, indent=4)
 ```
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | `cache/phase6/{video_id}_{query_hash}_hypothesis.json` (Phase 6), pre-extracted features or raw video |
+| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase7/{video_id}_{query_hash}_refined.json` |
+| **Cache Check** | Before running `refine_timestamps()`, check if the refined result already exists and return cached if so |
+| **Verification Checkpoint** | After completing all queries, write `cache/phase7/_manifest.json` listing all processed (video_id, query) pairs |
+| **Resume Strategy** | On re-run, skip any (video, query) pair whose refined JSON already exists on the SSD |
+
 ## Verification Strategy
 - **Prior Mask Check:** In a unit test, pass dummy logit vectors mapped to `[1, 0, 0]` and `[1, 0, 0]`. Ensure the Bayesian Prior matrix `p_joint` multiplication successfully nullifies any outcome where the start index is larger than the end index.
 - **Feature Dimension Check:** Assert that `v_features.shape[-1] == 1024` after Omnivore-L (768) + EgoVLPv2 (256) concatenation.
 - **Bounding Box Drift Check:** Run a validation sample where truth bounds are known. Compare the `refined_start` and `refined_end` against the ground truth label and assert IoU > 0.5.
 - **FPS Consistency:** Assert that `feature_fps` matches the actual temporal stride of the pre-extracted feature files by checking `num_features * feature_fps ≈ video_duration`.
+- **Cache Consistency:** Run `refine_timestamps()` twice with the same inputs. Assert the second call returns cached results instantly.
+

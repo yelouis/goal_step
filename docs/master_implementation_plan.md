@@ -117,7 +117,7 @@ To quantify the efficiency gain of the ToC approach, we run BayesianVSLNet on th
 - **Step 9.5: Failure Analysis:** Identify worst-performing queries, analyze failure modes, and iterate on Phases 4–6 thresholds.
 - **Step 9.6: Iterate:** Repeat until val metrics are satisfactory.
 
-## Phase 10: Results & Reporting
+## Phase 10: Results, Reporting & HuggingFace Upload
 - **Step 10.1: Aggregate Results Table:** Build a comparison table across all three datasets:
   | Dataset | Method | r@1 IoU=0.3 | r@1 IoU=0.5 | Speed-Up | Features Processed |
   |---|---|---|---|---|---|
@@ -129,5 +129,7 @@ To quantify the efficiency gain of the ToC approach, we run BayesianVSLNet on th
   - ToC without Phase 2 (no event annotation) 
   - ToC without Phase 3–4 (no acoustic triggers, only event sampling)
   - ToC without Librarian (random chapter selection)
-- **Step 10.4: Export & Documentation:** Package all results, plots, and analysis into a reproducible report.
+- **Step 10.4: Failure Analysis:** Categorize worst-performing queries into failure modes (Librarian mis-mapping, acoustic blind spots, caption hallucination, feature misalignment, ambiguous steps).
+- **Step 10.5: Export & Documentation:** Package all results, plots, and analysis into a reproducible report on the SSD.
+- **Step 10.6: HuggingFace Upload:** Upload all findings to HuggingFace Hub as a public dataset repository (`yelouis/toc-step-grounding`), including machine-readable results, per-query predictions, summary tables, plots, and a Dataset Card (README.md) with full methodology and reproduction instructions.
 

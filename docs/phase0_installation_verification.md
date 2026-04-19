@@ -24,7 +24,7 @@ Create a `.env` file in the root directory:
 echo "HF_TOKEN=your_token_here" > .env
 ```
 
-2. **Run Full Environment Check:**
+3. **Run Full Environment Check:**
 ```bash
 source venv/bin/activate
 python scripts/verify_env.py
@@ -85,7 +85,7 @@ After evaluating all MLX-native VLM candidates against our task requirements (eg
 ### Remaining Risks
 
 > [!NOTE]
-> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 5 with actual Ego4D frames.
+> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 5 with actual EPIC-KITCHENS / Charades-Ego / EgoProceL frames.
 
 > [!NOTE]
 > **Unauthenticated HuggingFace requests:** Downloads currently run without an `HF_TOKEN`, which imposes rate limits. For batch downloads in Phase 1, consider setting a **read** `HF_TOKEN` in the environment.

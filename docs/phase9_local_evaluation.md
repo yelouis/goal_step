@@ -233,8 +233,19 @@ To quantify the contribution of each pipeline component, run these ablation conf
 | **No Librarian** | Random chapter selection in Phase 6 | Value of LLM-based reasoning |
 | **Baseline** | Phase 8 only | Cost of no ToC narrowing |
 
+## Session Resilience
+
+| Item | Detail |
+|---|---|
+| **Input Dependencies** | `cache/phase7/` (ToC predictions), `cache/phase8/` (baseline predictions) |
+| **Output Artifacts** | `/Volumes/Extreme SSD/goal_step_data/results/toc_predictions.json`, `results/baseline_predictions.json`, `results/comparison_report.json` |
+| **Cache Check** | On entry, check if `comparison_report.json` already exists and contains results for all three datasets |
+| **Verification Checkpoint** | After completing evaluation, write `results/_manifest.json` with dataset-level metrics and query counts |
+| **Resume Strategy** | Aggregated predictions are built from per-query cached results in Phase 7/8, so re-running Phase 9 is fast even if the session was interrupted |
+
 ## Verification Strategy
 - **Known-Answer Test:** Create a mock prediction file where `predicted_times == ground_truth` exactly. Assert r@1 IoU=0.3 and r@1 IoU=0.5 both equal 100%.
 - **Zero-Overlap Test:** Create predictions that don't overlap with any GT. Assert all metrics are 0%.
 - **IoU Edge Cases:** Test overlapping, containing, and adjacent segments to verify the IoU computation handles boundary conditions.
 - **Speed-Up Sanity:** Assert that `speed_up_ratio >= 1.0` for all datasets (ToC should always process fewer features than baseline).
+
