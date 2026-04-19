@@ -1,8 +1,7 @@
-# Phase 5: Focused Bayesian Grounding (High-Res Pass)
+# Phase 7: Focused Bayesian Grounding (High-Res Pass — ToC Pipeline)
 
 ## Overview
-While the Librarian gives us a general "temporal neighborhood" or "chapter", the Ego4D challenge requires highly precise timestamps. 
-Instead of running heavy feature extraction on the *entire* video, we only extract features for the specific chapter identified by the Librarian. This restricted matrix is fed into a `BayesianVSLNet` head to generate a precise posterior probability distribution for the `(start, end)` boundaries.
+While the Librarian gives us a general "temporal neighborhood" or "chapter", precise step grounding requires highly accurate timestamps. Instead of running heavy feature extraction on the *entire* video, we only extract features for the specific chapter identified by the Librarian. This restricted matrix is fed into a `BayesianVSLNet` head to generate a precise posterior probability distribution for the `(start, end)` boundaries.
 
 By doing this, we achieve massive speed-ups while maintaining state-of-the-art localization boundaries using Bayesian test-time priors.
 
@@ -10,6 +9,8 @@ By doing this, we achieve massive speed-ups while maintaining state-of-the-art l
 > **Feature Backbone Alignment:** The original BayesianVSLNet (CVPR 2024 winner) was trained using **Omnivore-L + EgoVLPv2** concatenated visual features, with **EgoVLPv2 dual-encoder** text features. Using mismatched feature extractors will produce meaningless predictions. We must either:
 > - (a) Use the exact same feature backbones, or
 > - (b) Retrain the VSLNet head on our chosen features (not recommended without GPU cluster access)
+>
+> **Cross-Dataset Consideration:** Since we are evaluating on EPIC-KITCHENS-100, Charades-Ego, and EgoProceL (not Ego4D), pre-extracted Ego4D-native features won't be available. We will need to extract features from raw video using the same backbone models, or use a lightweight adaptation strategy (see Step 7.1).
 
 ## Theoretical Pipeline
 1. Load the `start_time` and `end_time` bounds from the Librarian.
@@ -24,10 +25,13 @@ By doing this, we achieve massive speed-ups while maintaining state-of-the-art l
 The BayesianVSLNet repository ([cplou99/BayesianVSLNet](https://github.com/cplou99/BayesianVSLNet)) expects:
 - **Video features** pre-extracted and stored at `./data/features/` — concatenated Omnivore-L (768-d) + EgoVLPv2 dual-encoder (256-d) = **1024-d per frame**.
 - **Text features** extracted using EgoVLPv2 weights stored at `./model/EgoVLP_weights/`.
-- Pre-extracted features are available via the Ego4D CLI (see Phase 0.5).
+
+Since our datasets (EPIC-KITCHENS-100, Charades-Ego, EgoProceL) don't come with Ego4D-format pre-extracted features, we have two options:
+1. **On-the-fly extraction:** Load Omnivore-L and EgoVLPv2 models and extract features from raw video frames for the windowed chapter only. This is feasible because the ToC narrows the window significantly.
+2. **Pre-extract and cache:** Run a one-time feature extraction pass over all videos and store on the SSD. More upfront cost but faster per-query inference.
 
 > [!NOTE]
-> If pre-extracted Omnivore features are available from the Ego4D download, we can skip the video encoder loading entirely and just slice the cached feature files for our windowed chapters. This saves significant memory.
+> For the initial proof-of-concept, option 1 (on-the-fly extraction within the ToC window) is preferred. It directly demonstrates the efficiency advantage: we only need to extract features for a small temporal slice, not the full video.
 
 ## Pseudocode Implementation
 
@@ -38,21 +42,20 @@ import torch
 import numpy as np
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
+SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
 FEATURE_DIR = os.path.join(SSD_BASE, "features")
 
 # ---- Feature Loading (preferred: use pre-extracted features) ----
 
-def load_preextracted_features(video_uid: str, start_sec: float, end_sec: float, feature_fps: float = 1.875):
+def load_preextracted_features(video_id: str, start_sec: float, end_sec: float, feature_fps: float = 1.875):
     """
     Load pre-extracted Omnivore-L + EgoVLPv2 features for a temporal window.
     
-    The Ego4D pre-extracted features are typically sampled at ~1.875 fps 
-    (one feature per 16-frame clip at 30fps). Check the actual rate from
-    the feature metadata.
+    Falls back gracefully if pre-extracted features don't exist for the
+    target dataset (EPIC-KITCHENS, Charades-Ego, or EgoProceL).
     
     Args:
-        video_uid: Ego4D video identifier
+        video_id: Video identifier (dataset-prefixed)
         start_sec: Window start time in seconds
         end_sec: Window end time in seconds
         feature_fps: Feature sampling rate (features per second)
@@ -61,9 +64,9 @@ def load_preextracted_features(video_uid: str, start_sec: float, end_sec: float,
         Tensor of shape [1, num_frames, feature_dim]
     """
     # Omnivore features
-    omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_uid}.npy")
+    omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_id}.npy")
     # EgoVLPv2 features  
-    egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_uid}.npy")
+    egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_id}.npy")
     
     omnivore_feats = np.load(omnivore_path)  # shape: [total_frames, 768]
     egovlp_feats = np.load(egovlp_path)      # shape: [total_frames, 256]
@@ -179,7 +182,8 @@ class BayesianGrounder:
         else:
             print(f"[WARNING] No checkpoint found at {ckpt_path} — using random weights")
         
-    def refine_timestamps(self, video_uid: str, target_step: str, chapter: dict, feature_fps: float = 1.875) -> dict:
+    def refine_timestamps(self, video_id: str, target_step: str, chapter: dict, 
+                          video_path: str = None, feature_fps: float = 1.875) -> dict:
         start_t = chapter.get("start_time", 0)
         end_t = chapter.get("end_time", 0)
         
@@ -192,11 +196,12 @@ class BayesianGrounder:
         # 2. Load Video Features (prefer pre-extracted)
         try:
             v_features = load_preextracted_features(
-                video_uid, padded_start, padded_end, feature_fps
+                video_id, padded_start, padded_end, feature_fps
             ).to(self.device)
         except FileNotFoundError:
-            print(f"[FALLBACK] Pre-extracted features not found for {video_uid}, extracting from video...")
-            video_path = os.path.join(SSD_BASE, f"videos/{video_uid}.mp4")
+            print(f"[FALLBACK] Pre-extracted features not found for {video_id}, extracting from video...")
+            if video_path is None:
+                raise ValueError(f"No video_path provided and pre-extracted features missing for {video_id}")
             raw_frames = load_video_frames_fallback(video_path, padded_start, padded_end, feature_fps)
             # Would need to run through Omnivore + EgoVLPv2 encoders here
             raise NotImplementedError("Live feature extraction requires Omnivore + EgoVLPv2 models")
@@ -239,7 +244,8 @@ class BayesianGrounder:
         
         return {
             "refined_start": round(refined_start, 2),
-            "refined_end": round(refined_end, 2)
+            "refined_end": round(refined_end, 2),
+            "features_processed": num_frames
         }
 
 if __name__ == '__main__':
@@ -247,14 +253,14 @@ if __name__ == '__main__':
     
     test_chapter = {"start_time": 10.0, "end_time": 25.0}
     result = grounder.refine_timestamps(
-        "sample_ego4d_vid_001",
-        "Tighten the screws on the metal bracket.",
+        "P01_101",
+        "wash the pan",
         test_chapter
     )
     print(f"Refined: {result}")
     
     # Save
-    out_path = os.path.join(SSD_BASE, "cache/phase5/sample_refined.json")
+    out_path = os.path.join(SSD_BASE, "cache/phase7/sample_refined.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, 'w') as f:
         json.dump(result, f, indent=4)
@@ -263,5 +269,5 @@ if __name__ == '__main__':
 ## Verification Strategy
 - **Prior Mask Check:** In a unit test, pass dummy logit vectors mapped to `[1, 0, 0]` and `[1, 0, 0]`. Ensure the Bayesian Prior matrix `p_joint` multiplication successfully nullifies any outcome where the start index is larger than the end index.
 - **Feature Dimension Check:** Assert that `v_features.shape[-1] == 1024` after Omnivore-L (768) + EgoVLPv2 (256) concatenation.
-- **Bounding Box Drift Check:** Run an Ego4D val sample where truth bounds are `[12.0s, 15.0s]`. Compare the `refined_start` and `refined_end` against this label and assert IoU > 0.5.
+- **Bounding Box Drift Check:** Run a validation sample where truth bounds are known. Compare the `refined_start` and `refined_end` against the ground truth label and assert IoU > 0.5.
 - **FPS Consistency:** Assert that `feature_fps` matches the actual temporal stride of the pre-extracted feature files by checking `num_features * feature_fps ≈ video_duration`.

@@ -1,15 +1,15 @@
-# Phase 1: The Acoustic Characterization Pass (Global Scan)
+# Phase 3: The Acoustic Characterization Pass (Global Scan)
 
 ## Overview
-The goal of this phase is to analyze the entire audio track of an Ego4D video to identify its baseline acoustic profile. By calculating the Global Noise Floor ($N_g$) and applying stationary noise masking, we can suppress persistent background sounds (e.g., HVAC units) and distinguish between "active" (noisy actions) and "passive" (quiet) regions.
+The goal of this phase is to analyze the entire audio track of a video (from any of our evaluation datasets: EPIC-KITCHENS-100, Charades-Ego, or EgoProceL) to identify its baseline acoustic profile. By calculating the Global Noise Floor ($N_g$) and applying stationary noise masking, we can suppress persistent background sounds (e.g., HVAC units) and distinguish between "active" (noisy actions) and "passive" (quiet) regions.
 
 ## Data Storage Notes
-- Raw audio tracks should be read from `/Volumes/Extreme SSD/ego4d_data/audio/`.
-- Spectrograms and noise profiles generated here should be cached to `/Volumes/Extreme SSD/ego4d_data/cache/phase1/`.
+- Raw audio tracks are extracted from the video files located under `/Volumes/Extreme SSD/goal_step_data/datasets/{dataset}/videos/`.
+- Spectrograms and noise profiles generated here should be cached to `/Volumes/Extreme SSD/goal_step_data/cache/phase3/`.
 
 ## Theoretical Pipeline
 
-1. **Audio Extraction:** Extract the `.wav` track from the Ego4D `.mp4`.
+1. **Audio Extraction:** Extract the `.wav` track from the source `.mp4` (or `.MP4` for EPIC-KITCHENS).
 2. **Frequency Domain Transformation:** Apply Short-Time Fourier Transform (STFT).
 3. **Global Noise Floor ($N_g$):** Compute the median magnitude of the energy envelope, and its Median Absolute Deviation (MAD).
 4. **Stationary Noise Masking:** Average frames that fall below $N_g + \text{MAD}$ to build a "quiet" spectral profile. Subtract this profile from the entire track.
@@ -24,7 +24,7 @@ import os
 import scipy.stats
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
+SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
 AUDIO_RATE = 16000 # Standardizing on 16kHz
 N_FFT = 2048
 HOP_LENGTH = 512
@@ -89,17 +89,18 @@ def apply_acoustic_characterization(video_id: str):
     # Recalculate clean energy envelope
     clean_energy_envelope = librosa.feature.rms(S=S_mag_clean)[0]
     
-    # Save clean envelope to SSD for Phase 2
-    save_path = os.path.join(SSD_BASE, f"cache/phase1/{video_id}_clean_energy.npy")
+    # Save clean envelope to SSD for Phase 4
+    save_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_clean_energy.npy")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     np.save(save_path, clean_energy_envelope)
     
-    print(f"Phase 1 complete for {video_id}. Ng={Ng:.4f}, MAD={mad:.4f}")
+    print(f"Phase 3 complete for {video_id}. Ng={Ng:.4f}, MAD={mad:.4f}")
 
 if __name__ == '__main__':
-    apply_acoustic_characterization("sample_ego4d_vid_001")
+    # Example: run on an EPIC-KITCHENS video
+    apply_acoustic_characterization("P01_101")
 ```
 
 ## Verification Strategy
-- **Visual STFT Check:** To test that the masking logic truly suppresses stationary HVAC noise without deleting tool sounds, temporarily use `matplotlib.pyplot` to render `librosa.display.specshow` of `S_mag` vs `S_mag_clean`.
+- **Visual STFT Check:** To test that the masking logic truly suppresses stationary HVAC noise without deleting tool sounds, temporarily use `matplotlib.pyplot` to render `librosa.display.specshow` of `S_mag` vs `S_mag_clean`. Test with videos from each dataset since audio characteristics vary (kitchens vs. indoor activities vs. assembly tasks).
 - **Unit Assertion:** Assert that taking `np.mean(S_mag_clean)` over known silent temporal regions in a test video is effectively `0.0`.

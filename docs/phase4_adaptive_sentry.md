@@ -1,7 +1,7 @@
-# Phase 2: The Adaptive Sentry (Bidirectional Magnitude Triggers)
+# Phase 4: The Adaptive Sentry (Bidirectional Magnitude Triggers)
 
 ## Overview
-Using the cleaned acoustic energy envelope generated in Phase 1, Phase 2 implements a sliding window algorithm to detect significant relative shifts in audio magnitude. This acts as an automated trigger directing the VLM (Visual Captioning) on exactly when to scan the video frame.
+Using the cleaned acoustic energy envelope generated in Phase 3, Phase 4 implements a sliding window algorithm to detect significant relative shifts in audio magnitude. This acts as an automated trigger directing the VLM (Visual Captioning) on exactly when to scan the video frame.
 
 > [!WARNING]
 > **Audio-Only Limitation:** Many egocentric procedural steps (measuring, aligning, inspecting) are visually obvious but acoustically silent. The `forced_silence` watcher handles some of these, but consider supplementing with a visual change-detection pass (e.g., frame-differencing or optical flow) as an additional trigger source in a future iteration.
@@ -22,8 +22,8 @@ import os
 import json
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
-FPS_AUDIO = 16000 / 512 # Approx 31.25 frames per second using Phase 1 standard
+SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+FPS_AUDIO = 16000 / 512 # Approx 31.25 frames per second using Phase 3 standard
 STA_WINDOW_FRAMES = int(0.5 * FPS_AUDIO) # 0.5 second window
 LTA_WINDOW_FRAMES = int(5.0 * FPS_AUDIO) # 5.0 second window
 
@@ -81,8 +81,8 @@ class AdaptiveSentry:
             self.k_down = min(K_DOWN_DEFAULT, self.k_down / self.decay_rate)
 
     def scan_track(self) -> list:
-        # Load clean energy from Phase 1 cache
-        energy_path = os.path.join(SSD_BASE, f"cache/phase1/{self.video_id}_clean_energy.npy")
+        # Load clean energy from Phase 3 cache
+        energy_path = os.path.join(SSD_BASE, f"cache/phase3/{self.video_id}_clean_energy.npy")
         energy_envelope = np.load(energy_path)
         
         total_frames = len(energy_envelope)
@@ -131,11 +131,12 @@ class AdaptiveSentry:
         return triggers
         
 if __name__ == '__main__':
-    sentry = AdaptiveSentry("sample_ego4d_vid_001")
+    # Example: run on an EPIC-KITCHENS video
+    sentry = AdaptiveSentry("P01_101")
     event_triggers = sentry.scan_track()
     
-    # Save triggers to SSD cache for Phase 3
-    out_path = os.path.join(SSD_BASE, "cache/phase2/sample_ego4d_vid_001_triggers.json")
+    # Save triggers to SSD cache for Phase 5
+    out_path = os.path.join(SSD_BASE, "cache/phase4/P01_101_triggers.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, 'w') as f:
         json.dump(event_triggers, f, indent=4)
@@ -155,6 +156,6 @@ def visual_change_score(prev_frame, curr_frame) -> float:
 This would run in parallel with the acoustic sentry, producing a merged trigger list sorted by timestamp. Not yet implemented but noted as a priority improvement.
 
 ## Verification Strategy
-- **Alignment Test:** Pass an Ego4D dataset sample through the pipeline and print all `["spike", "drop"]` timestamps. Watch the raw video sequentially via VLC and assert that >80% of major tool actions/sudden clanging trigger a spike, and setting down the tool triggers a drop. 
+- **Alignment Test:** Pass samples from each dataset through the pipeline and print all `["spike", "drop"]` timestamps. Watch the raw video sequentially via VLC and assert that >80% of major tool actions/sudden clanging trigger a spike, and setting down the tool triggers a drop. Test across all three datasets since audio profiles differ significantly (kitchen sounds vs. indoor activity vs. assembly). 
 - **Saturation Fallback Print:** The `check_saturation` method now prints when saturation activates. Verify during sustained noise events (e.g., using a drill for 30s).
 - **Decay Rate Test:** After saturation, run 5 more triggers and verify `k_up` gradually returns toward 2.5 (not instantly).

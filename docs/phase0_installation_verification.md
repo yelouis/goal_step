@@ -1,7 +1,7 @@
 # Phase 0: Installation and Model Verification
 
 ## Overview
-Before deploying the full Ego4D Phase 1-6 pipeline, we must verify that the base environment, external SSD mappings, and foundational ML models correctly function on your Apple Silicon (M4 Pro) architecture.
+Before deploying the full Phase 1-10 pipeline, we must verify that the base environment, external SSD mappings, and foundational ML models correctly function on your Apple Silicon (M4 Pro) architecture.
 
 ## Requirements
 - Python 3.14 (via Homebrew at `/opt/homebrew/bin/python3`)
@@ -33,7 +33,7 @@ python scripts/verify_env.py
 The script validates five subsystems:
 | Check | What it verifies |
 |:------|:-----------------|
-| **SSD** | `/Volumes/Extreme SSD/ego4d_data/models/huggingface` exists and is writable |
+| **SSD** | `/Volumes/Extreme SSD/goal_step_data/models/huggingface` exists and is writable |
 | **MLX** | Apple Silicon GPU compute via `mx.matmul` |
 | **MPS** | PyTorch Metal Performance Shaders backend for BayesianVSLNet |
 | **Audio** | `librosa` + `scipy` importable |
@@ -48,7 +48,7 @@ All five checks passed on 2026-04-12:
        mps: ✅ PASS
      audio: ✅ PASS
        vlm: ✅ PASS
-🟢 Environment ready. Proceed to Phase 0.5.
+🟢 Environment ready. Proceed to Phase 1.
 ```
 
 Key metrics:
@@ -78,14 +78,14 @@ After evaluating all MLX-native VLM candidates against our task requirements (eg
 | **`Qwen2.5-VL-3B-Instruct-4bit`** | ✅ **Selected** | Best-in-class reasoning at 3B scale; strong temporal/action understanding; 4-bit quantization fits in ~2 GB — well under the original 3.7 GB Moondream2 budget; natively supported by `mlx_vlm` (`qwen2_5_vl` arch) |
 
 ### Impact on Later Phases
-- **Phase 2 & 3:** Swap `vikhyatk/moondream2` → `mlx-community/Qwen2.5-VL-3B-Instruct-4bit` in all captioning code. Use `result.text` to extract captions from `GenerationResult` objects.
-- **Memory budget improves:** 2 GB (4-bit Qwen2.5-VL-3B) vs. 3.7 GB (Moondream2) leaves more headroom for Phase 4 (Gemma 4) and Phase 5 (BayesianVSLNet).
-- **Prompt format:** Qwen2.5-VL uses a chat template via `apply_chat_template()` — the trigger-aware prompts ("What action is the user starting?") will work through this interface.
+- **Phase 2 & 5:** Swap `vikhyatk/moondream2` → `mlx-community/Qwen2.5-VL-3B-Instruct-4bit` in all captioning code.
+- **Memory budget improves:** 2 GB (4-bit Qwen2.5-VL-3B) vs. 3.7 GB (Moondream2) leaves more headroom for Phase 6 (Gemma 4) and Phase 7 (BayesianVSLNet).
+- **Prompt format:** Qwen2.5-VL uses a chat template via `apply_chat_template()` — the trigger-aware prompts will work through this interface.
 
 ### Remaining Risks
 
 > [!NOTE]
-> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 3 with actual Ego4D frames.
+> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 5 with actual Ego4D frames.
 
 > [!NOTE]
-> **Unauthenticated HuggingFace requests:** Downloads currently run without an `HF_TOKEN`, which imposes rate limits. For batch downloads in Phase 0.5, consider setting a **read** `HF_TOKEN` in the environment.
+> **Unauthenticated HuggingFace requests:** Downloads currently run without an `HF_TOKEN`, which imposes rate limits. For batch downloads in Phase 1, consider setting a **read** `HF_TOKEN` in the environment.

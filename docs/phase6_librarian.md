@@ -1,7 +1,7 @@
-# Phase 4: The Librarian (Gemma 4 26B MoE Reasoning)
+# Phase 6: The Librarian (Gemma 4 26B MoE Reasoning)
 
 ## Overview
-The "Librarian" acts as the logical bridge between language (the target step from the Ego4D challenge) and vision/audio (the Table of Contents generated in Phase 3). By feeding the entire ToC into an LLM, we can map a specific query (e.g., "Assemble wooden frame") to the most probable "Chapter" (a temporal slice) within the video.
+The "Librarian" acts as the logical bridge between language (the target step query) and vision/audio (the Table of Contents generated in Phase 5). By feeding the entire ToC into an LLM, we can map a specific query (e.g., "Assemble wooden frame") to the most probable "Chapter" (a temporal slice) within the video. The ToC now includes both acoustic trigger captions and Phase 2 event annotations, giving the Librarian richer context.
 
 The Librarian will handle situations where a step was captured perfectly via an action "Spike", and also complex interpolations where a step happened silently between two "Drop" triggers.
 
@@ -13,12 +13,12 @@ Since this requires high logic, we utilize an advanced model (e.g., Gemma 4 26B 
 
 ## Model Lifecycle
 To avoid OOM on the 24GB M4 Pro:
-1. **Phase 3** loads Moondream2 (~3.7GB). After ToC generation for all videos, explicitly `del model` and `gc.collect()`.
-2. **Phase 4** loads Gemma 4 26B (~14GB). Runs all Librarian queries, then unloads.
-3. **Phase 5** loads BayesianVSLNet + text encoder (~4-8GB on MPS).
+1. **Phase 5** loads Moondream2 (~3.7GB). After ToC generation for all videos, explicitly `del model` and `gc.collect()`.
+2. **Phase 6** loads Gemma 4 26B (~14GB). Runs all Librarian queries, then unloads.
+3. **Phase 7** loads BayesianVSLNet + text encoder (~4-8GB on MPS).
 
-## Enhanced Prompt with Goal Hierarchy
-The Ego4D annotations include hierarchical context (Goal → Steps → Substeps). We pass the **goal description** and **goal category** alongside the ToC to improve the Librarian's reasoning about step ordering and relevance.
+### Enhanced Prompt with Goal Context
+When available, we pass contextual information (e.g., the goal description inferred from the dataset — EPIC-KITCHENS narrations, Charades scripts, or EgoProceL task names) alongside the ToC to improve the Librarian's reasoning about step ordering and relevance.
 
 ## Pseudocode Implementation
 
@@ -30,7 +30,7 @@ import gc
 from mlx_lm import load, generate
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
+SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
 MODEL_CACHE = os.path.join(SSD_BASE, "models/gemma")
 
 LIBRARIAN_PROMPT = """You are the "Procedural Video Librarian." Map the "Target Step" to the most likely chapters within a video's Table of Contents (ToC).
@@ -43,7 +43,8 @@ Goal Description: {goal_description}
 1. **Explicit Identification:** Prioritize chapters where the caption semantically matches the Target Step.
 2. **Silent-Step Interpolation:** If the exact step is missing from captions, identify the **Pre-Condition** (what happens before) and **Post-Condition** (what happens after). The Target Step likely occurred in the temporal gap between them.
 3. **Change Detection Logic:** Treat "drop" triggers as potential "Step Completion" markers and "spike" triggers as "Step Start" markers. A "spike" followed by a "drop" likely brackets one complete step.
-4. **Temporal Ordering:** Steps in procedural activities follow a logical order. Use the goal description to reason about which steps must precede or follow the target step.
+4. **Event Sample Integration:** Entries with trigger_type "event_sample" are uniformly sampled observations from Phase 2. They provide continuous coverage of the video and can fill gaps between acoustic triggers.
+5. **Temporal Ordering:** Steps in procedural activities follow a logical order. Use the goal description to reason about which steps must precede or follow the target step.
 
 You MUST respond ONLY with valid JSON in the following format (no markdown, no explanation outside the JSON):
 {{
@@ -127,7 +128,7 @@ class VideoLibrarian:
                   goal_description: str = "", goal_category: str = "",
                   max_retries: int = 3) -> dict:
         # Load the ToC
-        toc_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_toc.json")
+        toc_path = os.path.join(SSD_BASE, f"cache/phase5/{video_id}_toc.json")
         with open(toc_path, 'r') as f:
             toc = json.load(f)
             
@@ -183,24 +184,24 @@ class VideoLibrarian:
 if __name__ == '__main__':
     librarian = VideoLibrarian()
     
-    # Example with hierarchical context
-    query = "Tighten the screws on the metal bracket."
+    # Example with an EPIC-KITCHENS query
+    query = "wash the pan"
     result = librarian.find_step(
-        "sample_ego4d_vid_001", 
+        "P01_101", 
         query,
-        goal_description="Assemble a metal shelf unit from IKEA",
-        goal_category="Furniture Assembly"
+        goal_description="Kitchen activity by participant P01",
+        goal_category="Cooking"
     )
     
     # Save the Librarian's hypothesis to the SSD
-    out_path = os.path.join(SSD_BASE, "cache/phase4/sample_hypothesis.json")
+    out_path = os.path.join(SSD_BASE, "cache/phase6/sample_hypothesis.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, 'w') as f:
         json.dump(result, f, indent=4)
         
     print(f"Hypothesis Generated with {result['confidence']*100}% confidence.")
     
-    # Unload model before Phase 5
+    # Unload model before Phase 7
     librarian.unload()
 ```
 
