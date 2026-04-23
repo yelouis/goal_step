@@ -33,7 +33,7 @@ python scripts/verify_env.py
 The script validates five subsystems:
 | Check | What it verifies |
 |:------|:-----------------|
-| **SSD** | `/Volumes/Extreme SSD/goal_step_data/models/huggingface` exists and is writable |
+| **SSD** | `/Volumes/Extreme SSD/ego4d_data/models/huggingface` exists and is writable |
 | **MLX** | Apple Silicon GPU compute via `mx.matmul` |
 | **MPS** | PyTorch Metal Performance Shaders backend for BayesianVSLNet |
 | **Audio** | `librosa` + `scipy` importable |
@@ -85,7 +85,7 @@ After evaluating all MLX-native VLM candidates against our task requirements (eg
 ### Remaining Risks
 
 > [!NOTE]
-> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 5 with actual EPIC-KITCHENS / Charades-Ego / EgoProceL frames.
+> **Caption quality on blank/grey frames:** During verification, the model responded with a refusal ("I do not have the ability to see images") on a synthetic grey test image. This is expected — the model correctly handles edge cases. Real egocentric video frames will produce substantive captions. This should be validated early in Phase 5 with actual EPIC-KITCHENS / Ego4D / Ego4D frames.
 
 > [!NOTE]
 > **Unauthenticated HuggingFace requests:** Downloads currently run without an `HF_TOKEN`, which imposes rate limits. For batch downloads in Phase 1, consider setting a **read** `HF_TOKEN` in the environment.

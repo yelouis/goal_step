@@ -1,11 +1,11 @@
 # Phase 3: The Acoustic Characterization Pass (Global Scan)
 
 ## Overview
-The goal of this phase is to analyze the entire audio track of a video (from any of our evaluation datasets: EPIC-KITCHENS-100, Charades-Ego, or EgoProceL) to identify its baseline acoustic profile. By calculating the Global Noise Floor ($N_g$) and applying stationary noise masking, we can suppress persistent background sounds (e.g., HVAC units) and distinguish between "active" (noisy actions) and "passive" (quiet) regions.
+The goal of this phase is to analyze the entire audio track of a video (from the Ego4D dataset) to identify its baseline acoustic profile. By calculating the Global Noise Floor ($N_g$) and applying stationary noise masking, we can suppress persistent background sounds (e.g., HVAC units) and distinguish between "active" (noisy actions) and "passive" (quiet) regions.
 
 ## Data Storage Notes
-- Raw audio tracks are extracted from the video files located under `/Volumes/Extreme SSD/goal_step_data/datasets/{dataset}/videos/`.
-- Spectrograms and noise profiles generated here should be cached to `/Volumes/Extreme SSD/goal_step_data/cache/phase3/`.
+- Raw audio tracks are extracted from the video files located under `/Volumes/Extreme SSD/ego4d_data/v2/full_scale/`.
+- Spectrograms and noise profiles generated here should be cached to `/Volumes/Extreme SSD/ego4d_data/cache/phase3/`.
 
 ## Theoretical Pipeline
 
@@ -24,7 +24,7 @@ import os
 import scipy.stats
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 AUDIO_RATE = 16000 # Standardizing on 16kHz
 N_FFT = 2048
 HOP_LENGTH = 512
@@ -69,18 +69,18 @@ def generate_stationary_mask(S_mag: np.ndarray, Ng: float, mad: float) -> np.nda
     
     return spectral_mask
 
-def apply_acoustic_characterization(video_id: str, video_path: str):
+def apply_acoustic_characterization(video_uid: str, video_path: str):
     """Run acoustic characterization on a video.
     
     Args:
-        video_id: Unique identifier for the video.
+        video_uid: Unique identifier for the video.
         video_path: Absolute path to the video file on SSD.
     """
     # Cache check — skip if already processed
-    save_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_clean_energy.npy")
-    profile_path = os.path.join(SSD_BASE, f"cache/phase3/{video_id}_acoustic_profile.json")
+    save_path = os.path.join(SSD_BASE, f"cache/phase3/{video_uid}_clean_energy.npy")
+    profile_path = os.path.join(SSD_BASE, f"cache/phase3/{video_uid}_acoustic_profile.json")
     if os.path.exists(save_path) and os.path.exists(profile_path):
-        print(f"[CACHED] Acoustic characterization for {video_id} already exists.")
+        print(f"[CACHED] Acoustic characterization for {video_uid} already exists.")
         return
 
     # 1. Load data
@@ -113,7 +113,7 @@ def apply_acoustic_characterization(video_id: str, video_path: str):
     # Save acoustic profile metadata for downstream inspection
     import json
     profile = {
-        "video_id": video_id,
+        "video_uid": video_uid,
         "Ng": float(Ng),
         "MAD": float(mad),
         "audio_duration_sec": float(len(audio_signal) / AUDIO_RATE),
@@ -124,13 +124,13 @@ def apply_acoustic_characterization(video_id: str, video_path: str):
     with open(profile_path, 'w') as f:
         json.dump(profile, f, indent=2)
     
-    print(f"Phase 3 complete for {video_id}. Ng={Ng:.4f}, MAD={mad:.4f}")
+    print(f"Phase 3 complete for {video_uid}. Ng={Ng:.4f}, MAD={mad:.4f}")
 
 if __name__ == '__main__':
     # Example: run on an EPIC-KITCHENS video
     apply_acoustic_characterization(
-        "P01_101",
-        "/Volumes/Extreme SSD/goal_step_data/datasets/epic_kitchens_100/videos/P01_101.MP4"
+        "video_uid_example",
+        "/Volumes/Extreme SSD/ego4d_data/v2/full_scale/example_video.mp4"
     )
 ```
 
@@ -138,8 +138,8 @@ if __name__ == '__main__':
 
 | Item | Detail |
 |---|---|
-| **Input Dependencies** | Video files from Phase 1 at `datasets/{dataset}/videos/` |
-| **Output Artifacts** | `/Volumes/Extreme SSD/goal_step_data/cache/phase3/{video_id}_clean_energy.npy`, `{video_id}_acoustic_profile.json` |
+| **Input Dependencies** | Video files from Phase 1 at `v2/full_scale/` |
+| **Output Artifacts** | `/Volumes/Extreme SSD/ego4d_data/cache/phase3/{video_uid}_clean_energy.npy`, `{video_uid}_acoustic_profile.json` |
 | **Cache Check** | On entry, `apply_acoustic_characterization()` checks if both `.npy` and `.json` exist and returns early if so |
 | **Verification Checkpoint** | After completing all videos, write `cache/phase3/_manifest.json` listing all processed video IDs |
 | **Resume Strategy** | On re-run, skip any video whose clean energy + profile pair already exists on the SSD |
@@ -147,5 +147,5 @@ if __name__ == '__main__':
 ## Verification Strategy
 - **Visual STFT Check:** To test that the masking logic truly suppresses stationary HVAC noise without deleting tool sounds, temporarily use `matplotlib.pyplot` to render `librosa.display.specshow` of `S_mag` vs `S_mag_clean`. Test with videos from each dataset since audio characteristics vary (kitchens vs. indoor activities vs. assembly tasks).
 - **Unit Assertion:** Assert that taking `np.mean(S_mag_clean)` over known silent temporal regions in a test video is effectively `0.0`.
-- **Profile Metadata Check:** Assert that `{video_id}_acoustic_profile.json` contains valid `Ng`, `MAD`, and `audio_duration_sec` fields.
+- **Profile Metadata Check:** Assert that `{video_uid}_acoustic_profile.json` contains valid `Ng`, `MAD`, and `audio_duration_sec` fields.
 - **Cache Consistency:** Run `apply_acoustic_characterization()` twice. Assert the second call returns immediately.

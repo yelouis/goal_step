@@ -20,7 +20,7 @@ import time
 import torch
 import numpy as np
 
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 FEATURE_DIR = os.path.join(SSD_BASE, "features")
 
 class FullVideoBaseline:
@@ -44,7 +44,7 @@ class FullVideoBaseline:
         else:
             print(f"[WARNING] No checkpoint found at {ckpt_path}")
     
-    def predict_full_video(self, video_id: str, target_step: str, 
+    def predict_full_video(self, video_uid: str, target_step: str, 
                             video_duration: float, feature_fps: float = 1.875) -> dict:
         """
         Run BayesianVSLNet on the FULL video (no windowing).
@@ -54,8 +54,8 @@ class FullVideoBaseline:
         start_wall = time.time()
         
         # 1. Load full video features
-        omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_id}.npy")
-        egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_id}.npy")
+        omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_uid}.npy")
+        egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_uid}.npy")
         
         omnivore_feats = np.load(omnivore_path)
         egovlp_feats = np.load(egovlp_path)
@@ -116,7 +116,7 @@ def run_baseline_for_dataset(dataset_queries: dict, output_dir: str):
     Run the full-video baseline for all queries in a dataset split.
     
     Args:
-        dataset_queries: Dict of video_id -> VideoAnnotation (from Phase 1)
+        dataset_queries: Dict of video_uid -> VideoAnnotation (from Phase 1)
         output_dir: Where to save baseline results
     """
     baseline = FullVideoBaseline()
@@ -124,15 +124,15 @@ def run_baseline_for_dataset(dataset_queries: dict, output_dir: str):
     
     all_results = []
     
-    for video_id, annotation in dataset_queries.items():
+    for video_uid, annotation in dataset_queries.items():
         for query in annotation.queries:
             try:
                 result = baseline.predict_full_video(
-                    video_id=video_id,
+                    video_uid=video_uid,
                     target_step=query.step_description,
                     video_duration=annotation.video_duration
                 )
-                result["video_id"] = video_id
+                result["video_uid"] = video_uid
                 result["query_idx"] = query.query_idx
                 result["step_description"] = query.step_description
                 result["gt_start"] = query.gt_start_time
@@ -141,7 +141,7 @@ def run_baseline_for_dataset(dataset_queries: dict, output_dir: str):
                 all_results.append(result)
                 
             except Exception as e:
-                print(f"[ERROR] Baseline failed for {video_id} q{query.query_idx}: {e}")
+                print(f"[ERROR] Baseline failed for {video_uid} q{query.query_idx}: {e}")
     
     # Save all results
     out_path = os.path.join(output_dir, "baseline_results.json")
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     # Example: run baseline on a single query
     baseline = FullVideoBaseline()
     result = baseline.predict_full_video(
-        video_id="P01_101",
+        video_uid="video_uid_example",
         target_step="wash the pan",
         video_duration=600.0  # 10 minutes
     )
@@ -184,7 +184,7 @@ if __name__ == '__main__':
 | Item | Detail |
 |---|---|
 | **Input Dependencies** | Pre-extracted features, unified query index (Phase 1) |
-| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase8/baseline_results.json` (full dataset), individual `{video_id}_{query_idx}_baseline.json` |
+| **Output Artifact** | `/Volumes/Extreme SSD/ego4d_data/cache/phase8/baseline_results.json` (full dataset), individual `{video_uid}_{query_idx}_baseline.json` |
 | **Cache Check** | Before running a query, check if its individual baseline result already exists |
 | **Verification Checkpoint** | After completing all queries, write `cache/phase8/_manifest.json` listing all processed queries |
 | **Resume Strategy** | On re-run, skip any query whose baseline result already exists on the SSD |

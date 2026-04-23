@@ -18,7 +18,7 @@ To avoid OOM on the 24GB M4 Pro:
 3. **Phase 7** loads BayesianVSLNet + text encoder (~4-8GB on MPS).
 
 ### Enhanced Prompt with Goal Context
-When available, we pass contextual information (e.g., the goal description inferred from the dataset — EPIC-KITCHENS narrations, Charades scripts, or EgoProceL task names) alongside the ToC to improve the Librarian's reasoning about step ordering and relevance.
+When available, we pass contextual information (e.g., the goal description inferred from the dataset — EPIC-KITCHENS narrations, Charades scripts, or Ego4D task names) alongside the ToC to improve the Librarian's reasoning about step ordering and relevance.
 
 ## Pseudocode Implementation
 
@@ -30,7 +30,7 @@ import gc
 from mlx_lm import load, generate
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 MODEL_CACHE = os.path.join(SSD_BASE, "models/gemma")
 
 LIBRARIAN_PROMPT = """You are the "Procedural Video Librarian." Map the "Target Step" to the most likely chapters within a video's Table of Contents (ToC).
@@ -124,20 +124,20 @@ class VideoLibrarian:
         gc.collect()
         print("Librarian model unloaded from memory.")
         
-    def find_step(self, video_id: str, target_step: str, 
+    def find_step(self, video_uid: str, target_step: str, 
                   goal_description: str = "", goal_category: str = "",
                   max_retries: int = 3) -> dict:
         # Cache check — skip if this exact (video, query) was already processed
         import hashlib
         query_hash = hashlib.md5(target_step.encode()).hexdigest()[:8]
-        cache_path = os.path.join(SSD_BASE, f"cache/phase6/{video_id}_{query_hash}_hypothesis.json")
+        cache_path = os.path.join(SSD_BASE, f"cache/phase6/{video_uid}_{query_hash}_hypothesis.json")
         if os.path.exists(cache_path):
-            print(f"[CACHED] Librarian hypothesis for {video_id} / '{target_step[:40]}...' already exists.")
+            print(f"[CACHED] Librarian hypothesis for {video_uid} / '{target_step[:40]}...' already exists.")
             with open(cache_path, 'r') as f:
                 return json.load(f)
 
         # Load the ToC
-        toc_path = os.path.join(SSD_BASE, f"cache/phase5/{video_id}_toc.json")
+        toc_path = os.path.join(SSD_BASE, f"cache/phase5/{video_uid}_toc.json")
         with open(toc_path, 'r') as f:
             toc = json.load(f)
             
@@ -201,7 +201,7 @@ if __name__ == '__main__':
     # Example with an EPIC-KITCHENS query
     query = "wash the pan"
     result = librarian.find_step(
-        "P01_101", 
+        "video_uid_example", 
         query,
         goal_description="Kitchen activity by participant P01",
         goal_category="Cooking"
@@ -223,10 +223,10 @@ if __name__ == '__main__':
 
 | Item | Detail |
 |---|---|
-| **Input Dependencies** | `cache/phase5/{video_id}_toc.json` (Phase 5), unified query index (Phase 1) |
-| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase6/{video_id}_{query_hash}_hypothesis.json` |
-| **Cache Check** | On entry, `find_step()` checks if the (video_id, query_hash) result already exists and returns early if so |
-| **Verification Checkpoint** | After completing all queries, write `cache/phase6/_manifest.json` listing all processed (video_id, query) pairs |
+| **Input Dependencies** | `cache/phase5/{video_uid}_toc.json` (Phase 5), unified query index (Phase 1) |
+| **Output Artifact** | `/Volumes/Extreme SSD/ego4d_data/cache/phase6/{video_uid}_{query_hash}_hypothesis.json` |
+| **Cache Check** | On entry, `find_step()` checks if the (video_uid, query_hash) result already exists and returns early if so |
+| **Verification Checkpoint** | After completing all queries, write `cache/phase6/_manifest.json` listing all processed (video_uid, query) pairs |
 | **Resume Strategy** | On re-run, skip any (video, query) pair whose hypothesis JSON already exists on the SSD |
 
 ## Verification Strategy

@@ -30,7 +30,7 @@ from mlx_vlm.prompt_utils import apply_chat_template
 from mlx_vlm.utils import load_config
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 MODEL_ID = "mlx-community/Qwen2.5-VL-3B-Instruct-4bit"
 
 # Trigger-aware prompts for better caption relevance
@@ -56,7 +56,7 @@ class CaptioningEngine:
         gc.collect()
         print("Captioning engine VLM unloaded.")
 
-    def extract_frame(self, video_path: str, timestamp_s: float, video_id: str) -> str:
+    def extract_frame(self, video_path: str, timestamp_s: float, video_uid: str) -> str:
         """ 
         Extracts a specific frame and saves it to the SSD with a unique filename.
         Returns the path to the saved image.
@@ -73,12 +73,12 @@ class CaptioningEngine:
         
         # Use unique filename per (video, timestamp) to avoid race conditions
         safe_ts = str(timestamp_s).replace('.', '_')
-        img_path = os.path.join(SSD_BASE, f"cache/phase5/frames/{video_id}_{safe_ts}.jpg")
+        img_path = os.path.join(SSD_BASE, f"cache/phase5/frames/{video_uid}_{safe_ts}.jpg")
         os.makedirs(os.path.dirname(img_path), exist_ok=True)
         cv2.imwrite(img_path, frame)
         return img_path
     
-    def extract_multi_frame_context(self, video_path: str, timestamp_s: float, video_id: str, window_sec: float = 0.5) -> list:
+    def extract_multi_frame_context(self, video_path: str, timestamp_s: float, video_uid: str, window_sec: float = 0.5) -> list:
         """
         Extract 3 frames around the trigger point for richer context.
         Returns list of image paths: [before, at, after].
@@ -91,7 +91,7 @@ class CaptioningEngine:
         paths = []
         for ts in timestamps:
             try:
-                path = self.extract_frame(video_path, ts, video_id)
+                path = self.extract_frame(video_path, ts, video_uid)
                 paths.append(path)
             except ValueError:
                 pass  # End of video, skip
@@ -120,26 +120,26 @@ class CaptioningEngine:
             print(f"[ERROR] VLM inference failed for {img_path}: {e}")
             return "[CAPTION_FAILED]"
 
-    def process_video_toc(self, video_id: str, video_path: str):
+    def process_video_toc(self, video_uid: str, video_path: str):
         """
         Build a Table of Contents for one video by captioning acoustic triggers
         and merging with Phase 2 event annotations.
 
         Args:
-            video_id: Unique identifier for the video.
+            video_uid: Unique identifier for the video.
             video_path: Absolute path to the video file on the SSD.
         """
         # Cache check — skip if ToC already exists
-        toc_out_path = os.path.join(SSD_BASE, f"cache/phase5/{video_id}_toc.json")
+        toc_out_path = os.path.join(SSD_BASE, f"cache/phase5/{video_uid}_toc.json")
         if os.path.exists(toc_out_path):
-            print(f"[CACHED] ToC for {video_id} already exists.")
+            print(f"[CACHED] ToC for {video_uid} already exists.")
             with open(toc_out_path, 'r') as f:
                 return json.load(f)
 
-        trigger_path = os.path.join(SSD_BASE, f"cache/phase4/{video_id}_triggers.json")
+        trigger_path = os.path.join(SSD_BASE, f"cache/phase4/{video_uid}_triggers.json")
         
         if not os.path.exists(trigger_path):
-            raise FileNotFoundError(f"Triggers for {video_id} not found at {trigger_path}. Run Phase 4 first.")
+            raise FileNotFoundError(f"Triggers for {video_uid} not found at {trigger_path}. Run Phase 4 first.")
             
         with open(trigger_path, 'r') as f:
             triggers = json.load(f)
@@ -147,7 +147,7 @@ class CaptioningEngine:
         toc_entries = []
         os.makedirs(os.path.join(SSD_BASE, "cache/phase5/frames"), exist_ok=True)
         
-        print(f"Processing {len(triggers)} triggers for {video_id}...")
+        print(f"Processing {len(triggers)} triggers for {video_uid}...")
         
         for t in triggers:
             timestamp = t['timestamp']
@@ -155,7 +155,7 @@ class CaptioningEngine:
             
             # 1. Grab visual context (primary frame)
             try:
-                img_path = self.extract_frame(video_path, timestamp, video_id)
+                img_path = self.extract_frame(video_path, timestamp, video_uid)
             except ValueError as e:
                 print(f"[SKIP] Frame extraction failed at {timestamp}s: {e}")
                 continue
@@ -180,7 +180,7 @@ class CaptioningEngine:
             print(f"[{timestamp}s | {trigger_type}]: {entry['caption']}")
             
         # 5. Merge with Phase 2 Event Annotations
-        event_log_path = os.path.join(SSD_BASE, f"cache/phase2/{video_id}_events.json")
+        event_log_path = os.path.join(SSD_BASE, f"cache/phase2/{video_uid}_events.json")
         if os.path.exists(event_log_path):
             with open(event_log_path, 'r') as f:
                 event_log = json.load(f)
@@ -202,15 +202,15 @@ class CaptioningEngine:
         with open(toc_out_path, 'w') as f:
             json.dump(toc_entries, f, indent=4)
         
-        print(f"ToC successfully constructed for {video_id}. ({len(toc_entries)} entries)")
+        print(f"ToC successfully constructed for {video_uid}. ({len(toc_entries)} entries)")
         return toc_entries
 
 if __name__ == '__main__':
     engine = CaptioningEngine()
     # Example: run on an EPIC-KITCHENS video
     engine.process_video_toc(
-        "P01_101",
-        "/Volumes/Extreme SSD/goal_step_data/datasets/epic_kitchens_100/videos/P01_101.MP4"
+        "video_uid_example",
+        "/Volumes/Extreme SSD/ego4d_data/v2/full_scale/video_uid_example.mp4"
     )
     engine.unload()
 ```
@@ -221,9 +221,9 @@ Each phase must be resumable from a different session. Phase 5's contract:
 
 | Item | Detail |
 |---|---|
-| **Input Dependencies** | `cache/phase4/{video_id}_triggers.json` (Phase 4), `cache/phase2/{video_id}_events.json` (Phase 2) |
-| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase5/{video_id}_toc.json` |
-| **Cache Check** | On entry, `process_video_toc()` checks if `{video_id}_toc.json` exists and returns early if so |
+| **Input Dependencies** | `cache/phase4/{video_uid}_triggers.json` (Phase 4), `cache/phase2/{video_uid}_events.json` (Phase 2) |
+| **Output Artifact** | `/Volumes/Extreme SSD/ego4d_data/cache/phase5/{video_uid}_toc.json` |
+| **Cache Check** | On entry, `process_video_toc()` checks if `{video_uid}_toc.json` exists and returns early if so |
 | **Verification Checkpoint** | After completing all videos, write `cache/phase5/_manifest.json` listing all processed video IDs and entry counts |
 | **Resume Strategy** | On re-run, skip any video whose `_toc.json` already exists on the SSD |
 

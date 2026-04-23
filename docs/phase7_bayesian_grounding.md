@@ -10,7 +10,7 @@ By doing this, we achieve massive speed-ups while maintaining state-of-the-art l
 > - (a) Use the exact same feature backbones, or
 > - (b) Retrain the VSLNet head on our chosen features (not recommended without GPU cluster access)
 >
-> **Cross-Dataset Consideration:** Since we are evaluating on EPIC-KITCHENS-100, Charades-Ego, and EgoProceL (not Ego4D), pre-extracted Ego4D-native features won't be available. We will need to extract features from raw video using the same backbone models, or use a lightweight adaptation strategy (see Step 7.1).
+> **Cross-Dataset Consideration:** Since we are evaluating on Ego4D , pre-extracted Ego4D-native features won't be available. We will need to extract features from raw video using the same backbone models, or use a lightweight adaptation strategy (see Step 7.1).
 
 ## Theoretical Pipeline
 1. Load the `start_time` and `end_time` bounds from the Librarian.
@@ -26,7 +26,7 @@ The BayesianVSLNet repository ([cplou99/BayesianVSLNet](https://github.com/cplou
 - **Video features** pre-extracted and stored at `./data/features/` — concatenated Omnivore-L (768-d) + EgoVLPv2 dual-encoder (256-d) = **1024-d per frame**.
 - **Text features** extracted using EgoVLPv2 weights stored at `./model/EgoVLP_weights/`.
 
-Since our datasets (EPIC-KITCHENS-100, Charades-Ego, EgoProceL) don't come with Ego4D-format pre-extracted features, we have two options:
+Since our datasets (Ego4D) don't come with Ego4D-format pre-extracted features, we have two options:
 1. **On-the-fly extraction:** Load Omnivore-L and EgoVLPv2 models and extract features from raw video frames for the windowed chapter only. This is feasible because the ToC narrows the window significantly.
 2. **Pre-extract and cache:** Run a one-time feature extraction pass over all videos and store on the SSD. More upfront cost but faster per-query inference.
 
@@ -42,20 +42,20 @@ import torch
 import numpy as np
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 FEATURE_DIR = os.path.join(SSD_BASE, "features")
 
 # ---- Feature Loading (preferred: use pre-extracted features) ----
 
-def load_preextracted_features(video_id: str, start_sec: float, end_sec: float, feature_fps: float = 1.875):
+def load_preextracted_features(video_uid: str, start_sec: float, end_sec: float, feature_fps: float = 1.875):
     """
     Load pre-extracted Omnivore-L + EgoVLPv2 features for a temporal window.
     
     Falls back gracefully if pre-extracted features don't exist for the
-    target dataset (EPIC-KITCHENS, Charades-Ego, or EgoProceL).
+    target dataset (EPIC-KITCHENS, Ego4D, or Ego4D).
     
     Args:
-        video_id: Video identifier (dataset-prefixed)
+        video_uid: Video identifier (dataset-prefixed)
         start_sec: Window start time in seconds
         end_sec: Window end time in seconds
         feature_fps: Feature sampling rate (features per second)
@@ -64,9 +64,9 @@ def load_preextracted_features(video_id: str, start_sec: float, end_sec: float, 
         Tensor of shape [1, num_frames, feature_dim]
     """
     # Omnivore features
-    omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_id}.npy")
+    omnivore_path = os.path.join(FEATURE_DIR, f"omnivore/{video_uid}.npy")
     # EgoVLPv2 features  
-    egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_id}.npy")
+    egovlp_path = os.path.join(FEATURE_DIR, f"egovlpv2/{video_uid}.npy")
     
     omnivore_feats = np.load(omnivore_path)  # shape: [total_frames, 768]
     egovlp_feats = np.load(egovlp_path)      # shape: [total_frames, 256]
@@ -182,7 +182,7 @@ class BayesianGrounder:
         else:
             print(f"[WARNING] No checkpoint found at {ckpt_path} — using random weights")
         
-    def refine_timestamps(self, video_id: str, target_step: str, chapter: dict, 
+    def refine_timestamps(self, video_uid: str, target_step: str, chapter: dict, 
                           video_path: str = None, feature_fps: float = 1.875) -> dict:
         start_t = chapter.get("start_time", 0)
         end_t = chapter.get("end_time", 0)
@@ -196,12 +196,12 @@ class BayesianGrounder:
         # 2. Load Video Features (prefer pre-extracted)
         try:
             v_features = load_preextracted_features(
-                video_id, padded_start, padded_end, feature_fps
+                video_uid, padded_start, padded_end, feature_fps
             ).to(self.device)
         except FileNotFoundError:
-            print(f"[FALLBACK] Pre-extracted features not found for {video_id}, extracting from video...")
+            print(f"[FALLBACK] Pre-extracted features not found for {video_uid}, extracting from video...")
             if video_path is None:
-                raise ValueError(f"No video_path provided and pre-extracted features missing for {video_id}")
+                raise ValueError(f"No video_path provided and pre-extracted features missing for {video_uid}")
             raw_frames = load_video_frames_fallback(video_path, padded_start, padded_end, feature_fps)
             # Would need to run through Omnivore + EgoVLPv2 encoders here
             raise NotImplementedError("Live feature extraction requires Omnivore + EgoVLPv2 models")
@@ -253,7 +253,7 @@ if __name__ == '__main__':
     
     test_chapter = {"start_time": 10.0, "end_time": 25.0}
     result = grounder.refine_timestamps(
-        "P01_101",
+        "video_uid_example",
         "wash the pan",
         test_chapter
     )
@@ -270,10 +270,10 @@ if __name__ == '__main__':
 
 | Item | Detail |
 |---|---|
-| **Input Dependencies** | `cache/phase6/{video_id}_{query_hash}_hypothesis.json` (Phase 6), pre-extracted features or raw video |
-| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase7/{video_id}_{query_hash}_refined.json` |
+| **Input Dependencies** | `cache/phase6/{video_uid}_{query_hash}_hypothesis.json` (Phase 6), pre-extracted features or raw video |
+| **Output Artifact** | `/Volumes/Extreme SSD/ego4d_data/cache/phase7/{video_uid}_{query_hash}_refined.json` |
 | **Cache Check** | Before running `refine_timestamps()`, check if the refined result already exists and return cached if so |
-| **Verification Checkpoint** | After completing all queries, write `cache/phase7/_manifest.json` listing all processed (video_id, query) pairs |
+| **Verification Checkpoint** | After completing all queries, write `cache/phase7/_manifest.json` listing all processed (video_uid, query) pairs |
 | **Resume Strategy** | On re-run, skip any (video, query) pair whose refined JSON already exists on the SSD |
 
 ## Verification Strategy

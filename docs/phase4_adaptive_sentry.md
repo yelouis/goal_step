@@ -22,7 +22,7 @@ import os
 import json
 
 # System Configuration
-SSD_BASE = "/Volumes/Extreme SSD/goal_step_data"
+SSD_BASE = "/Volumes/Extreme SSD/ego4d_data"
 FPS_AUDIO = 16000 / 512 # Approx 31.25 frames per second using Phase 3 standard
 STA_WINDOW_FRAMES = int(0.5 * FPS_AUDIO) # 0.5 second window
 LTA_WINDOW_FRAMES = int(5.0 * FPS_AUDIO) # 5.0 second window
@@ -32,8 +32,8 @@ K_UP_DEFAULT = 2.5
 K_DOWN_DEFAULT = 0.3
 
 class AdaptiveSentry:
-    def __init__(self, video_id: str):
-        self.video_id = video_id
+    def __init__(self, video_uid: str):
+        self.video_uid = video_uid
         
         # Initial Thresholds
         self.k_up = K_UP_DEFAULT
@@ -82,7 +82,7 @@ class AdaptiveSentry:
 
     def scan_track(self) -> list:
         # Load clean energy from Phase 3 cache
-        energy_path = os.path.join(SSD_BASE, f"cache/phase3/{self.video_id}_clean_energy.npy")
+        energy_path = os.path.join(SSD_BASE, f"cache/phase3/{self.video_uid}_clean_energy.npy")
         energy_envelope = np.load(energy_path)
         
         total_frames = len(energy_envelope)
@@ -132,11 +132,11 @@ class AdaptiveSentry:
         
 if __name__ == '__main__':
     # Example: run on an EPIC-KITCHENS video
-    sentry = AdaptiveSentry("P01_101")
+    sentry = AdaptiveSentry("video_uid_example")
     event_triggers = sentry.scan_track()
     
     # Save triggers to SSD cache for Phase 5
-    out_path = os.path.join(SSD_BASE, "cache/phase4/P01_101_triggers.json")
+    out_path = os.path.join(SSD_BASE, "cache/phase4/video_uid_example_triggers.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, 'w') as f:
         json.dump(event_triggers, f, indent=4)
@@ -159,28 +159,28 @@ This would run in parallel with the acoustic sentry, producing a merged trigger 
 
 | Item | Detail |
 |---|---|
-| **Input Dependencies** | `cache/phase3/{video_id}_clean_energy.npy` (Phase 3) |
-| **Output Artifact** | `/Volumes/Extreme SSD/goal_step_data/cache/phase4/{video_id}_triggers.json` |
-| **Cache Check** | Before running `scan_track()`, check if `{video_id}_triggers.json` exists and load from cache if so |
+| **Input Dependencies** | `cache/phase3/{video_uid}_clean_energy.npy` (Phase 3) |
+| **Output Artifact** | `/Volumes/Extreme SSD/ego4d_data/cache/phase4/{video_uid}_triggers.json` |
+| **Cache Check** | Before running `scan_track()`, check if `{video_uid}_triggers.json` exists and load from cache if so |
 | **Verification Checkpoint** | After completing all videos, write `cache/phase4/_manifest.json` listing all processed video IDs and trigger counts |
 | **Resume Strategy** | On re-run, skip any video whose `_triggers.json` already exists on the SSD |
 
 ```python
-def run_sentry_cached(video_id: str) -> list:
+def run_sentry_cached(video_uid: str) -> list:
     """Run the Adaptive Sentry with cache check."""
-    cache_path = os.path.join(SSD_BASE, f"cache/phase4/{video_id}_triggers.json")
+    cache_path = os.path.join(SSD_BASE, f"cache/phase4/{video_uid}_triggers.json")
     if os.path.exists(cache_path):
-        print(f"[CACHED] Triggers for {video_id} already exist.")
+        print(f"[CACHED] Triggers for {video_uid} already exist.")
         with open(cache_path, 'r') as f:
             return json.load(f)
     
-    sentry = AdaptiveSentry(video_id)
+    sentry = AdaptiveSentry(video_uid)
     triggers = sentry.scan_track()
     
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     with open(cache_path, 'w') as f:
         json.dump(triggers, f, indent=4)
-    print(f"Sentry detected {len(triggers)} interest zones for {video_id}.")
+    print(f"Sentry detected {len(triggers)} interest zones for {video_uid}.")
     return triggers
 ```
 
